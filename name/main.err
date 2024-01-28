@@ -1,14 +1,1 @@
-c:\masm32\include\winextra.inc(19403) : Error A2139: Non-benign structure redefinition: LIST_ENTRY64
- c:\masm32\include\winextra.inc(19403): Included by
-  c:\masm32\include\windows.inc(26889): Included by
-   .\pe_parser.inc(11): Included by
-    .\main.asm(68): Main line code
-.\main.asm(178) : Warning A4187: Line number information for segment without class 'CODE': sc
-.\main.asm(673) : Error A2271: structure field expected
-.\main.asm(679) : Warning A4073: Size not specified, assuming: DWORD
-.\main.asm(688) : Error A2271: structure field expected
-.\main.asm(691) : Error A2271: structure field expected
-.\main.asm(694) : Error A2271: structure field expected
-.\main.asm(694) : Error A2146: Too few arguments to INVOKE: 
-.\main.asm(696) : Warning A4073: Size not specified, assuming: BYTE
-.\main.asm(705) : Warning A4073: Size not specified, assuming: BYTE
+.\main.asm(176) : Warning A4187: Line number information for segment without class 'CODE': sc
