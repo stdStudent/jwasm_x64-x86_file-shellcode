@@ -85,7 +85,6 @@ FileFunc typedef proc ptr
 
 
 .data
-    ffd _ffd <>
  
  
 .const
@@ -103,6 +102,7 @@ printFileName endp
 SearchForFiles proc c uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
 	local szExt[10]:byte
 	local hFind:cword
+	local ffd:_ffd
 	
 	invoke crt_memset, addr szExt, 0, 10
 
