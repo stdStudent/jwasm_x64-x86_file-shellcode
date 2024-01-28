@@ -156,7 +156,7 @@ main proc c argc:DWORD, argv:DWORD, envp:DWORD
 
 
 	; Get addres of function
-	mov cdi, offset printFileName
+	lea cdi, printFileName
 
 	; Call SearchForFiles
     invoke SearchForFiles, addr szDir, addr szExt, cdi
