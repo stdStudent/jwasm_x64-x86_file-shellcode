@@ -68,8 +68,8 @@ _ffd struct
     ftCreationTime FILETIME <>
     ftLastAccessTime FILETIME <>
     ftLastWriteTime FILETIME <>
-    nFileSizeHigh dd ?
-    nFileSizeLow dd ?
+    nFilcsizeHigh dd ?
+    nFilcsizeLow dd ?
     dwReserved0 dd ?
     dwReserved1 dd ?
     cFileName db MAX_PATH dup(?)
@@ -100,7 +100,7 @@ printFileName proc c szFileName:ptr dword
     ret
 printFileName endp
 
-SearchForFiles proc c uses esi edi ecx eax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
+SearchForFiles proc c uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
 	local szExt[10]:byte
 	
 	invoke crt_memset, addr szExt, 0, 10
@@ -113,27 +113,27 @@ SearchForFiles proc c uses esi edi ecx eax szDir:ptr dword, fileExtension:ptr dw
     
     ; Call FindFirstFile
     invoke FindFirstFileA, szDir, addr ffd
-    mov hFind, eax
+    mov hFind, cax
 
     ; Loop through the files
     cmp hFind, INVALID_HANDLE_VALUE
     je out_end
 
     do_loop:
-		;movzx ecx, ffd
+		;movzx ccx, ffd
         test ffd._ffd.dwFileAttributes, FILE_ATTRIBUTE_DIRECTORY
         jz not_dir
 
     not_dir:
 		;; func(ffd.cFileName);
-		mov edi, func ; Load the function pointer into edi
-		lea esi, ffd._ffd.cFileName
-		push esi ; Push the argument and call the function
-		call edi ; Call func
-		add esp, 4 ; Restore the stack
+		mov cdi, func ; Load the function pointer into cdi
+		lea csi, ffd._ffd.cFileName
+		push csi ; Push the argument and call the function
+		call cdi ; Call func
+		add csp, 4 ; Restore the stack
 		
         invoke FindNextFileA, hFind, addr ffd
-        cmp eax, 0
+        cmp cax, 0
         jne do_loop
 
     out_end:
@@ -156,10 +156,10 @@ main proc c argc:DWORD, argv:DWORD, envp:DWORD
 
 
 	; Get addres of function
-	mov edi, offset printFileName
+	mov cdi, offset printFileName
 
 	; Call SearchForFiles
-    invoke SearchForFiles, addr szDir, addr szExt, edi
+    invoke SearchForFiles, addr szDir, addr szExt, cdi
 
     ; Exit the program
     invoke ExitProcess, 0
