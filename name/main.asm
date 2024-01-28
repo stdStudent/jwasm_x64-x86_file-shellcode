@@ -20,15 +20,19 @@ endif
 option casemap:none
 .model flat, CurrentStdcallNotation
 
+
+ifdef _WIN64
+LIST_ENTRY64 struct
+    Flink dd ?
+    Blink dd ?
+LIST_ENTRY64 ends
+else
 LIST_ENTRY32 struct
     Flink dd ?
     Blink dd ?
 LIST_ENTRY32 ends
+endif
 
-;LIST_ENTRY64 struct
-    ;Flink dd ?
-    ;Blink dd ?
-;LIST_ENTRY64 ends
 
 ifdef _WIN64
 CLIST_ENTRY typedef LIST_ENTRY64
