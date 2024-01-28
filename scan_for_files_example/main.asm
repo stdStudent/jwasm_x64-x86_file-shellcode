@@ -81,17 +81,17 @@ _ffd ends
 
 FileFunc typedef proc ptr
 
-.data
-	outputFormat db "%s", 13, 10, 0
-	dirPath db 'C:\Users\Labour\Downloads', 0
-    exeExt db '\*.exe', 0
-    ffd _ffd <>
-    hFind dd ?
-
 .data?
+
+
+.data
+    ffd _ffd <>
  
  
 .const
+	outputFormat db "%s", 13, 10, 0
+	dirPath db 'C:\Users\Labour\Downloads', 0
+    exeExt db '\*.exe', 0
 
 
 .code
@@ -102,6 +102,7 @@ printFileName endp
 
 SearchForFiles proc c uses csi cdi ccx cax szDir:ptr dword, fileExtension:ptr dword, func:ptr FileFunc
 	local szExt[10]:byte
+	local hFind:cword
 	
 	invoke crt_memset, addr szExt, 0, 10
 
